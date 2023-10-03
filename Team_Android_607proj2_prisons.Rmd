@@ -1,0 +1,330 @@
+---
+title: "Data 607 Project 2"
+author: 'Team Android: Jean Jimenez,'
+date: "2023-10-02"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# NYS Prison Employee Misconduct
+
+## Introduction
+
+One data set I chose for this project was a data set of Prison Employee Misconduct in the State of New York. The data set used was obtained through a Freedom of Information Act (FOIA) request to the NYS Department of Correction. The FOIA request was submitted by the Marshall Project; a nonpartisan, nonprofit news organization that focuses on criminal justice reform. The data was obtained in text and was partially processed by this website to have \~some structure (it is very wide). The data set used in this project are the cases filed from July 2020 to April 2022. To access this data, visit [here](https://observablehq.com/@themarshallproject/new-york-prison-employee-discipline-data). The following are questions I would like to answer in this project:
+
+1.  What is the most common form of misconduct?
+
+2.  What is the most common form of penalty?
+
+3.  Do some employee types have more misconduct than others?
+
+4.  Do any facilities have significantly more or less offenses?
+
+## Import and Cleaning Data
+
+After importing the data, I began 'tidying' it. The dimensions of the data set are 1016 x 16. Then, I started to filter to get only the columns we care about. To do that, I used select to select the columns that I want.
+
+```{r}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(stringr)
+
+nys_miscond=read.csv(url("https://raw.githubusercontent.com/sleepysloth12/607proj2_NYS_Prison_Misconduct/main/20_22_nys_co_misc.csv"))
+
+#dim(nys_miscond)
+
+#names(nys_miscond)
+
+semi_clean = nys_miscond %>%
+  select(c('TITLE','FACILITY','MISCONDUCT','PENALTY','REASON'))
+
+```
+
+According to the data dictionary, there are 22 misconduct abbreviations. Some individuals have multiple offenses. I will create a new column 'n_offense' with the number of offenses each employee has. To do this, I pass my data frame through mutate where I use str_count to count the number of commas (separator) and report that number plus one as the number of offenses. Afterwards, I created one column for each offense to track the first 3 offense types. To do that, first I got all of the misconduct codes using , as a separator. Then, I took the list of codes and got the first 3 offenses per person using sapply. Finally, I removed the misconduct row.
+
+```{r}
+
+#unique(semi_clean$MISCONDUCT)
+
+semi_clean = semi_clean %>%
+  mutate(n_offense=str_count(MISCONDUCT, ",")+1)
+
+semi_clean= semi_clean %>%
+  
+  mutate(misconduct_list = str_split(MISCONDUCT, ",")) %>%
+  mutate(
+    first_offense = sapply(misconduct_list, function(x) x[1]),
+    second_offense = sapply(misconduct_list, function(x) x[2]),
+    third_offense = sapply(misconduct_list, function(x) x[3])
+  ) %>%
+  select(-c(misconduct_list, MISCONDUCT)) 
+
+semi_clean
+```
+
+Next, I wanted to process and simplify the penalty column. Similar to above, will make a n_penalty to get the number of penalties each individual was charged with. Then, I will categorize the penalty to the different categories (suspension, fired, pay_fine, loss_priv). To categorize the offense, I make a function then use across to apply the function to my multiple columns. There were some spelling mistakes in the data set so I had to account for that. If any of the strings were detected in those columns, they were replaced with the four categories created. Now that the data is clean, its time to move on to the analysis. After doing this, I wanted to categorize the different types of offenses so I did using the same method and creating another function. The data dictionary was helpful for this. The categories I defined were behavioral, abuse/ harassment, negligence/ incompetence, misuse/violation of duty.
+
+```{r}
+#unique(semi_clean$PENALTY)
+
+penalty_semi = semi_clean %>%
+  mutate(n_penalty=str_count(PENALTY, ",")+1)
+
+clean_doc= penalty_semi %>%
+  
+  mutate(penalty_list = str_split(PENALTY, ",")) %>%
+  mutate(
+    first_penalty = sapply(penalty_list, function(x) x[1]),
+    second_penalty = sapply(penalty_list, function(x) x[2]),
+    third_penalty = sapply(penalty_list, function(x) x[3])
+  ) %>%
+  select(-c(penalty_list, PENALTY)) 
+
+
+
+penalty_cat=function(df_column){
+  
+  sus_strs=c("SP","D", "SUSP")
+  fine_str=c("$", "FINE", "PAY")
+  fired_str=c("DISMISAL","DISMISSAL","ACURALS","ACCRUALS","ACCRUALS")
+  priv_str=c("SWAPPS", "SWAPPING")
+   
+   
+  return(sapply(df_column, function(penalty) {
+    if (is.na(penalty)) {
+      return(NA)
+    } else if (any(str_detect(penalty, sus_strs))) {
+      return("suspension")
+    } else if (any(str_detect(penalty, fine_str))) {
+      return("pay_fine")
+    } else if (any(str_detect(penalty, fired_str))) {
+      return("fired")
+    } else if (any(str_detect(penalty, priv_str))) {
+      return("loss_priv")
+    } else {
+      return("unknown")
+    }
+  }))
+ 
+}
+
+clean_doc = clean_doc %>%
+  mutate(
+    first_penalty = penalty_cat(first_penalty),
+    second_penalty = penalty_cat(second_penalty),
+    third_penalty = penalty_cat(third_penalty)
+  )
+
+
+
+
+categorize_misconduct = function(df_column) {
+  
+  behavioral_strs = c("AL", "IN", "LP", "OT")
+  abuse_strs = c("IA", "DI", "DI(S)", "RC", "SH")
+  negligence_strs = c("CO", "FD", "IE", "INC", "NG", "SL", "WCF")
+  misuse_strs = c("AT", "SP", "UF", "ODD", "ODO", "ODW")
+  
+  return(sapply(df_column, function(code) {
+    if (is.na(code)) {
+      return(NA)
+    } else if (code %in% behavioral_strs) {
+      return("Behavioral Issues")
+    } else if (code %in% abuse_strs) {
+      return("Abuse and Harassment")
+    } else if (code %in% negligence_strs) {
+      return("Negligence and Incompetence")
+    } else if (code %in% misuse_strs) {
+      return("Misuse and Violation of Duty")
+    } else {
+      return("Unknown")
+    }
+  }))
+}
+
+clean_doc = clean_doc %>%
+  mutate(
+    first_offense = categorize_misconduct(first_offense),
+    second_offense = categorize_misconduct(second_offense),
+    third_offense = categorize_misconduct(third_offense)
+  )
+
+clean_doc
+```
+
+## Analysis
+
+### Types of Misconduct
+
+First, I wanted to see the types of misconducts the employees did in their first offense. To do this, I used dplyr to get the count of each offense type. Then, I made a pie chart using ggplot. I added geom text at the end to graph the percent sign
+
+```{r}
+
+first_offense_count = clean_doc %>%
+  group_by(first_offense) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count))
+
+total_count = sum(first_offense_count$Count)
+first_offense_count$Percentage = (first_offense_count$Count / total_count) * 100
+
+
+ggplot(first_offense_count, aes(x = "", y = Count, fill = first_offense)) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar("y") +
+  theme_void() +
+  labs(title = "Frequency of First Offense Types",
+       fill = "First Offense Type") +
+   geom_text(aes(label = paste0(round(Percentage, 1), "%")), 
+              position = position_stack(vjust = 0.5))
+```
+
+30% of the misconduct that occurred on the first offense were behavioral issues. This about the same rate that individuals had a miscellaneous or unknown misconduct offense. The least occurring offense is Abuse and Harassment, which happened 6.9% of the time
+
+Surprisingly, there were no third offenses and only 4 second offenses.
+
+There is a wide variety of offense type and it might be helpful in the future to focus only on one of these groups.
+
+### Types of Penalties
+
+Since there were a negligible amount of 2nd and 3rd offenses, I am only going to focus on first offenses/ penalties for the remainder of the project. To get the frequency/proportion of penalty types, I did similar to above but with the penalty column instead.
+
+```{r}
+first_penalty_count = clean_doc %>%
+  group_by(first_penalty) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count))
+
+total_penalty_count = sum(first_penalty_count$Count)
+first_penalty_count$Percentage = (first_penalty_count$Count / total_penalty_count) * 100
+
+
+ggplot(first_penalty_count, aes(x = "", y = Count, fill = first_penalty)) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar("y") +
+  theme_void() +
+  labs(title = "Frequency of First Penalty Types",
+       fill = "First Penalty Type") +
+   geom_text(aes(label = paste0(round(Percentage, 1), "%")), 
+              position = position_stack(vjust = 0.5))
+```
+
+96.3% of the misconducts resulted in suspension. 3.7% resulted in paying a fine.
+
+This data doesn't tell us much. Since length of suspension was also recorded (partially), we might be able to do something by categorizing suspension days/months given.
+
+### Types of Employees
+
+Does employee type influence the type of misconduct?
+
+```{r}
+employee_misconduct_count = clean_doc %>%
+  group_by(TITLE) %>%
+  summarise(Total_Misconducts = sum(n_offense)) %>%
+  arrange(desc(Total_Misconducts))
+
+employee_misconduct_count
+```
+
+An overwhelming of amount of the misconducts went to Correctional Officers, with a total number if 1293. In second place was Sergeants, with 57 total misconducts reported. That is a difference of 1,236. Consider allocating resources to Correction Officers so that the number of misconducts are reduced.
+
+### Misconduct by Facility
+
+I waned to see which facilities have the most and least offenses. After getting the total number of offenses per facility by tallying each offense per facility together. I notice that there are 70 facilities. I will get the top 10 offenders and bottom 10 offenders. After doing this, I created a graph to show the distribution of the bottom 10 offenders.
+
+```{r}
+
+prison_facilities = clean_doc %>%
+  group_by(FACILITY) %>%
+  summarise(total_offenses = sum(n_offense))
+
+bottom_10 = prison_facilities %>%
+  arrange(total_offenses) %>%
+  head(10)
+
+top_10=prison_facilities %>%
+  arrange(desc(total_offenses)) %>%
+  head(10)
+
+ggplot(bottom_10, aes(x = reorder(FACILITY, total_offenses), y = total_offenses)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  ggtitle("Bottom 10 Facilities by Total Offenses") +
+  xlab("Facility") +
+  ylab("Total Offenses")
+```
+
+These are the 10 facilities with the lowest number of offenses. They can serve as a bright spot and we can model the other prison facilities after this one to decrease misconduct amungst employees.
+
+```{r}
+cat("The mean number of total offenses per prison is" ,mean(prison_facilities$total_offenses), ".\n")
+cat("The median number  of total offenses per prison is", median(prison_facilities$total_offenses), ".\n")
+```
+
+Since the Mean is 25 and Median is 21, I wanted to see what proportion of ALL offenses were done at the top 10 facilities (since the top facility had a lot more than 21 offenses). Then I graphed both the distribution of offenses. Afterwards, I wanted to see what percent of the total number of offenses the top 10 facilities are guilty of.
+
+cat(((10/num_facilities)\*100),"% of the prison facilities account for", (top_10_n/total_n_offenses)\*100) , "% of the offenses. \\n")
+
+```{r}
+
+num_facilities=length(prison_facilities$FACILITY)
+
+total_n_offenses=sum(clean_doc$n_offense)
+
+top_10 = top_10 %>%
+  mutate(prop_offenses = total_offenses / total_n_offenses)
+
+ggplot(top_10, aes(x = reorder(FACILITY, total_offenses), y = total_offenses)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  ggtitle("Top 10 Facilities by Total Offenses") +
+  xlab("Facility") +
+  ylab("Total Offenses")
+
+
+cat("The total number of offenses in this period of time is",total_n_offenses,". \n")
+
+cat("The average proportion of offense for the top 10 offenders is", mean(top_10$prop_offenses), "or", mean(top_10$prop_offenses)*100 , "% offenses. \n")
+
+top_10_n=sum(top_10$total_offenses)
+
+cat("The top 10 offenders make up", top_10_n/total_n_offenses, "or",  (top_10_n/total_n_offenses)*100 , "% of the offenses. \n")
+
+cat((10 / num_facilities) * 100, "% of the prison facilities account for ", 
+    (top_10_n / total_n_offenses) * 100, "% of the offenses.\n")
+
+```
+
+Since 14% of the facilities account for 37% of the misconduct, maybe the NYS Department of Corrections should investigate these facilities to see why they account to a high amount of offenses. By doing so, the state will save money in the long term.
+
+## Conclusion
+
+In this project, we performed an extensive analysis of Prison Employee Misconduct in the State of New York from July 2020 to April 2022. Our objectives were to identify patterns in types of misconduct, penalties assigned, and the distribution of misconduct across different job titles and facilities.
+
+Our key findings are as follows:
+
+**Types of Misconduct**: Behavioral issues emerged as the most common form of first-time misconduct, accounting for 30% of such cases. This was followed by miscellaneous or unknown types of offenses. The least common was abuse and harassment, at 6.9%.
+
+**Types of Penalties**: A staggering 96.3% of misconduct resulted in suspensions, suggesting that the disciplinary actions are heavily skewed towards this form of penalty.
+
+**Employee Types**: Correctional Officers had the highest number of reported misconducts, far exceeding those of Sergeants, the next most common group. This suggests that specific attention needs to be focused on this group to reduce misconduct rates.
+
+**Facility Analysis**: We identified the top 10 and bottom 10 facilities by the total number of offenses. Interestingly, the top 10 facilities accounted for 37% of all offenses but only make up 14% of all facilities. This indicates that the problem is more concentrated than initially thought.
+
+Given these findings, several recommendations can be made:
+
+**Focused Training**: Specialized training programs could be developed to target the most common types of misconduct, especially for Correctional Officers.
+
+**Facility Investigation**: Given that a small proportion of facilities account for a large percentage of offenses, these sites should be subject to further investigation to understand the root causes.
+
+**Best Practices**: Facilities with fewer incidents of misconduct could serve as models for implementing best practices across other locations.
+
+The data provides a rich ground for formulating targeted interventions that could substantially reduce misconduct, improve the work environment, and result in long-term cost savings for the NYS Department of Corrections.
