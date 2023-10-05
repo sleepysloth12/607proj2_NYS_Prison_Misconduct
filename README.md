@@ -2,7 +2,7 @@
 
 ## Overview
 
-by Team Android (Jean Jimenez, )
+by Team Android (Jean Jimenez, Matthew Roland, Kelly Eng) )
 
 This repository contains an analysis of Prison Employee Misconduct in the State of New York for the period from July 2020 to April 2022. The project aims to identify the most common types of misconduct, the penalties usually administered, and how misconduct varies by job title and facility.
 
