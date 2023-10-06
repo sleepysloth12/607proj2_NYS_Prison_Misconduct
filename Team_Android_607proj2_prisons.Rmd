@@ -1,6 +1,6 @@
 ---
 title: "Data 607 Project 2"
-author: 'Team Android: Jean Jimenez,'
+author: 'Team Android: Jean Jimenez, Matthew Roland, Kelly Eng'
 date: "2023-10-02"
 output:
   html_document:
